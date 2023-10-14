@@ -47,6 +47,7 @@ func main() {
         })
     })
 
+    slog.Info("listening for requests", "port", port);
     http.ListenAndServe(fmt.Sprintf(":%d", port), r)
 }
 

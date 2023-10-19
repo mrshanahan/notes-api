@@ -8,6 +8,7 @@ import (
     "os"
     "path/filepath"
     "regexp"
+    "strconv"
     "strings"
     "time"
     "unicode"
@@ -17,12 +18,14 @@ var (
     INDEX_ID_PATTERN = regexp.MustCompile(`^id:\s*(.*)`)
     INDEX_TITLE_PATTERN = regexp.MustCompile(`^title:\s*(.*)`)
     INDEX_PATH_PATTERN = regexp.MustCompile(`^path:\s*(.*)`)
+    INDEX_CREATEDON_PATTERN = regexp.MustCompile(`^created_on:\s*(.*)`)
 )
 
 type IndexEntry struct {
     ID string
     Title string
     Path string
+    CreatedOn time.Time
 }
 
 func GetNotesRoot() string {
@@ -33,7 +36,7 @@ func GetNotesRoot() string {
     return root
 }
 
-func NewNote(title string) *IndexEntry {
+func NewNote(title string, index []*IndexEntry) (*IndexEntry, []*IndexEntry) {
     root := GetNotesRoot()
     name := newNoteName()
     path := filepath.Join(root, name)
@@ -48,11 +51,16 @@ func NewNote(title string) *IndexEntry {
     }
     defer f.Close()
 
-    return &IndexEntry{
-        ID: "",
+    id := getNextID(index)
+    entry := &IndexEntry{
+        ID: id,
         Title: title,
         Path: path,
+        CreatedOn: time.Now().UTC(),
     }
+    index = append(index, entry)
+
+    return entry, index
 }
 
 func ImportNote(srcPath string) (*IndexEntry, error) {
@@ -87,6 +95,7 @@ func ImportNote(srcPath string) (*IndexEntry, error) {
         ID: "",
         Title: title,
         Path: dstPath,
+        CreatedOn: time.Now().UTC(),
     }, nil
 }
 
@@ -100,11 +109,15 @@ func LoadIndex() ([]*IndexEntry, error) {
     entries := []*IndexEntry{}
     var entry *IndexEntry
     scanner, idx := bufio.NewScanner(f), 0
-    entry, linesProcessed, err := parseNextIndexEntry(scanner)
-    for entry != nil && err == nil {
+    if !scanner.Scan() {
+        return nil, scanner.Err()
+    }
+
+    entry, more, linesProcessed, err := parseNextIndexEntry(scanner)
+    for entry != nil && more && err == nil {
         entries = append(entries, entry)
         idx += linesProcessed
-        entry, linesProcessed, err = parseNextIndexEntry(scanner)
+        entry, more, linesProcessed, err = parseNextIndexEntry(scanner)
     }
     if err != nil {
         return nil, err
@@ -124,19 +137,39 @@ func SaveIndex(entries []*IndexEntry) error {
         return err
     }
     for _, e := range entries {
+        f.WriteString(fmt.Sprintf("id: %s\n", e.ID))
         f.WriteString(fmt.Sprintf("title: %s\n", e.Title))
         f.WriteString(fmt.Sprintf("path: %s\n", e.Path))
+        f.WriteString(fmt.Sprintf("created_on: %s\n", e.CreatedOn.Format(time.RFC3339)))
         f.WriteString("\n")
     }
     return nil
 }
 
-func DeleteNote(entry *IndexEntry) error {
+func DeleteNote(id string, index []*IndexEntry) ([]*IndexEntry, error) {
+    entry := LookupNote(id, index)
+    if entry == nil {
+        return index, nil
+    }
+
     err := os.Remove(entry.Path)
     if err != nil && !errors.Is(err, os.ErrNotExist) {
-        return err
+        return index, err
     }
-    return nil
+
+    index = removeEntry(id, index)
+    return index, nil
+}
+
+func LookupNote(id string, index []*IndexEntry) *IndexEntry {
+    var found *IndexEntry = nil
+    for _, note := range index {
+        if note.ID == id {
+            found = note
+            break
+        }
+    }
+    return found
 }
 
 func GetNoteContents(entry *IndexEntry) ([]byte, error) {
@@ -204,24 +237,32 @@ func isWhitespace(s string) bool {
     return len(s) == 0
 }
 
-func skipBlankLines(scanner *bufio.Scanner) (bool, int, string) {
-    more, linesProcessed, line := scanner.Scan(), 1, scanner.Text()
+func skipBlankLines(scanner *bufio.Scanner, scanFirst bool) (bool, int, string) {
+    var more bool
+    if scanFirst {
+        more = scanner.Scan()
+    } else {
+        more = true
+    }
+
+    line, linesSkipped := scanner.Text(), 0
     for more && isWhitespace(line) {
         more = scanner.Scan()
-        linesProcessed++
+        linesSkipped++
         if more {
             line = scanner.Text()
         }
     }
-    return more, linesProcessed, line
+    return more, linesSkipped, line
 }
 
-func parseNextIndexEntry(scanner *bufio.Scanner) (*IndexEntry, int, error) {
-    more, linesSkipped, line := skipBlankLines(scanner)
+// Assumes that the scanner is pointing to the first token.
+func parseNextIndexEntry(scanner *bufio.Scanner) (*IndexEntry, bool, int, error) {
+    more, linesSkipped, line := skipBlankLines(scanner, false)
     linesProcessed := linesSkipped
     if !more {
         err := scanner.Err()
-        return nil, linesProcessed, err
+        return nil, false, linesProcessed, err
     }
 
     var id string
@@ -229,16 +270,16 @@ func parseNextIndexEntry(scanner *bufio.Scanner) (*IndexEntry, int, error) {
     if matches := INDEX_ID_PATTERN.FindStringSubmatch(idRaw); matches != nil {
         id = strings.TrimSpace(matches[1])
     } else {
-        return nil, linesProcessed, errors.New(fmt.Sprintf("Invalid id: %s", idRaw))
+        return nil, false, linesProcessed, errors.New(fmt.Sprintf("Invalid id: %s", idRaw))
     }
 
-    more, linesSkipped, line = skipBlankLines(scanner)
+    more, linesSkipped, line = skipBlankLines(scanner, true)
     linesProcessed += linesSkipped
     if !more {
         if err := scanner.Err(); err != nil {
-            return nil, linesProcessed, err
+            return nil, false, linesProcessed, err
         }
-        return nil, linesProcessed, errors.New(fmt.Sprintf("No matching title for id: %s", id))
+        return nil, false, linesProcessed, errors.New(fmt.Sprintf("No matching title for id: %s", id))
     }
 
     var title string
@@ -246,16 +287,16 @@ func parseNextIndexEntry(scanner *bufio.Scanner) (*IndexEntry, int, error) {
     if matches := INDEX_TITLE_PATTERN.FindStringSubmatch(titleRaw); matches != nil {
         title = strings.TrimSpace(matches[1])
     } else {
-        return nil, linesProcessed, errors.New(fmt.Sprintf("Invalid title string: %s", titleRaw))
+        return nil, false, linesProcessed, errors.New(fmt.Sprintf("Invalid title string: %s", titleRaw))
     }
 
-    more, linesSkipped, line = skipBlankLines(scanner)
+    more, linesSkipped, line = skipBlankLines(scanner, true)
     linesProcessed += linesSkipped
     if !more {
         if err := scanner.Err(); err != nil {
-            return nil, linesProcessed, err
+            return nil, false, linesProcessed, err
         }
-        return nil, linesProcessed, errors.New(fmt.Sprintf("No matching path for title: %s", title))
+        return nil, false, linesProcessed, errors.New(fmt.Sprintf("No matching path for title: %s", title))
     }
 
     var path string
@@ -263,8 +304,68 @@ func parseNextIndexEntry(scanner *bufio.Scanner) (*IndexEntry, int, error) {
     if matches := INDEX_PATH_PATTERN.FindStringSubmatch(pathRaw); matches != nil {
         path = strings.TrimSpace(matches[1])
     } else {
-        return nil, linesProcessed, errors.New(fmt.Sprintf("Invalid path string: %s", pathRaw))
+        return nil, false, linesProcessed, errors.New(fmt.Sprintf("Invalid path string: %s", pathRaw))
     }
 
-    return &IndexEntry{id, title, path}, linesProcessed, nil
+    var createdOn time.Time
+
+    more, linesSkipped, line = skipBlankLines(scanner, true)
+    linesProcessed += linesSkipped
+    if !more {
+        if err := scanner.Err(); err != nil {
+            return nil, false, linesProcessed, err
+        }
+    } else {
+        createdOnRaw := line
+        if matches := INDEX_CREATEDON_PATTERN.FindStringSubmatch(createdOnRaw); matches != nil {
+            createdOnStr := strings.TrimSpace(matches[1])
+            parsed, err := time.Parse(time.RFC3339, createdOnStr)
+            if err != nil {
+                return nil, false, linesProcessed, err
+            }
+            createdOn = parsed
+            more = scanner.Scan()
+        }
+    }
+
+    return &IndexEntry{id, title, path, createdOn}, more, linesProcessed, nil
+}
+
+type FieldSchema struct {
+     Name string
+     Type string
+     IsOptional bool
+}
+
+type ParserSchema struct {
+    Fields []*FieldSchema
+    FieldFormat string
+}
+
+
+// TODO: Struct for parsing the entry
+
+func getNextID(index []*IndexEntry) string {
+    max := 0
+    for _, entry := range index {
+        id, _ := strconv.Atoi(entry.ID)
+        if max <= 0 || max < id {
+            max = id
+        }
+    }
+    return fmt.Sprintf("%d", max+1)
+}
+
+func removeEntry(id string, index []*IndexEntry) []*IndexEntry {
+    var foundIdx int = -1
+    for i, entry := range index {
+        if entry.ID == id {
+            foundIdx = i
+            break
+        }
+    }
+    if foundIdx >= 0 {
+        index = append(index[:foundIdx], index[foundIdx+1:]...)
+    }
+    return index
 }

@@ -7,6 +7,7 @@ import (
     "net/http"
     "os"
     "strconv"
+    "time"
 
     "github.com/go-chi/chi/v5"
     "github.com/go-chi/chi/v5/middleware"
@@ -23,7 +24,7 @@ func main() {
         port = defaultPort
         slog.Info("no valid port provided via NOTES_API_PORT, using default",
             "portStr", portStr,
-            "port", port)
+            "defaultPort", port)
     } else {
         slog.Info("using custom port",
             "port", port)
@@ -35,15 +36,19 @@ func main() {
 	r.Use(middleware.Recoverer)
     r.Use(render.SetContentType(render.ContentTypeJSON))
 
-	// r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-	// 	w.Write([]byte("hello world"))
-	// })
+    r.Route("/index", func(r chi.Router) {
+        r.Post("/validate", validateIndex)
+    })
 
     r.Route("/notes", func(r chi.Router) {
         r.Get("/", listNotes)
+        r.Post("/", createNote)
         r.Route("/{noteID}", func(r chi.Router) {
             r.Get("/", getNote)
+            r.Put("/", updateNote)
+            r.Delete("/", deleteNote)
             r.Get("/content", getNoteContent)
+            r.Put("/content", updateNoteContent)
         })
     })
 
@@ -54,8 +59,9 @@ func main() {
 func listNotes(w http.ResponseWriter, r *http.Request) {
     index, err := notes.LoadIndex()
     if err != nil {
-        slog.Error("failed to load index", err)
-        http.Error(w, http.StatusText(500), 500)
+        slog.Error("failed to load index",
+            "err", err)
+        render.Render(w, r, ErrInternalServerError(err))
         return
     }
     if err = render.RenderList(w, r, newNotesListResponse(index)); err != nil {
@@ -63,11 +69,72 @@ func listNotes(w http.ResponseWriter, r *http.Request) {
     }
 }
 
+func createNote(w http.ResponseWriter, r *http.Request) {
+    index, err := notes.LoadIndex()
+    if err != nil {
+        slog.Error("failed to load index",
+            "err", err)
+        render.Render(w, r, ErrInternalServerError(err))
+        return
+    }
+
+    data := &NoteRequest{}
+    if err := render.Bind(r, data); err != nil {
+        render.Render(w, r, ErrInvalidRequest(err))
+    }
+
+    entry, index := notes.NewNote(data.Note.Title, index)
+    if err = notes.SaveIndex(index); err != nil {
+        slog.Error("failed to save index",
+            "err", err)
+        render.Render(w, r, ErrInternalServerError(err))
+    } else {
+        render.Render(w, r, newNoteResponseWithStatus(entry, http.StatusCreated))
+    }
+}
+
+func validateIndex(w http.ResponseWriter, r *http.Request) {
+    slog.Info("loading index")
+    index, err := notes.LoadIndex()
+    slog.Info("loaded index")
+    if err != nil {
+        slog.Error("failed to load index",
+            "err", err)
+        render.Render(w, r, ErrInternalServerError(err))
+        return
+    }
+
+    for _, entry := range index {
+        if entry.CreatedOn.IsZero() {
+            path := entry.Path
+            info, err := os.Stat(path)
+            if err != nil {
+                slog.Error("failed to load entry file",
+                    "id", entry.ID,
+                    "path", entry.Path,
+                    "err", err)
+            } else {
+                entry.CreatedOn = info.ModTime()
+                slog.Info("updated created_on value for entry from file time",
+                    "id", entry.ID,
+                    "created_on", entry.CreatedOn)
+            }
+        }
+    }
+
+    if err := notes.SaveIndex(index); err != nil {
+        slog.Error("failed to save index", err)
+        render.Render(w, r, ErrInternalServerError(err))
+    }
+
+    w.WriteHeader(http.StatusNoContent)
+}
+
 func getNote(w http.ResponseWriter, r *http.Request) {
     index, err := notes.LoadIndex()
     if err != nil {
         slog.Error("failed to load index", err)
-        http.Error(w, http.StatusText(500), 500)
+        render.Render(w, r, ErrInternalServerError(err))
         return
     }
 
@@ -88,6 +155,43 @@ func getNote(w http.ResponseWriter, r *http.Request) {
     if err = render.Render(w, r, newNoteResponse(found)); err != nil {
         render.Render(w, r, ErrInternalServerError(err))
     }
+}
+
+func updateNote(w http.ResponseWriter, r *http.Request) {
+}
+
+func deleteNote(w http.ResponseWriter, r *http.Request) {
+    index, err := notes.LoadIndex()
+    if err != nil {
+        slog.Error("failed to load index", err)
+        render.Render(w, r, ErrInternalServerError(err))
+        return
+    }
+
+    id := chi.URLParam(r, "noteID")
+    found := notes.LookupNote(id, index)
+    if found == nil {
+        render.Render(w, r, ErrNotFoundError(errors.New(fmt.Sprintf("no note with id: %s", id))))
+        return
+    }
+
+    if index, err = notes.DeleteNote(id, index); err != nil {
+        slog.Error("failed to remove note",
+            "err", err,
+            "noteID", id)
+        render.Render(w, r, ErrInternalServerError(err))
+        return
+    }
+
+    if err = notes.SaveIndex(index); err != nil {
+        // In case of error, re-deleting isn't an issue - we ignore not-found errors from the FS.
+        slog.Error("failed to save index; note is still deleted but entry is present in index",
+            "err", err,
+            "noteID", id)
+        render.Render(w, r, ErrInternalServerError(err))
+    }
+
+    w.WriteHeader(http.StatusNoContent)
 }
 
 func getNoteContent(w http.ResponseWriter, r *http.Request) {
@@ -133,11 +237,25 @@ func getNoteContent(w http.ResponseWriter, r *http.Request) {
     w.Write(content)
 }
 
-func newNoteResponse(index *notes.IndexEntry) render.Renderer {
+func updateNoteContent(w http.ResponseWriter, r *http.Request) {
+}
+
+func newNoteResponseWithStatus(entry *notes.IndexEntry, status int) render.Renderer {
    return &Note{
-       ID: index.ID,
-       Title: index.Title,
-       CreatedOn: "",
+       HTTPStatusCode: status,
+       ID: entry.ID,
+       Title: entry.Title,
+       CreatedOn: entry.CreatedOn,
+   }
+}
+
+
+func newNoteResponse(entry *notes.IndexEntry) render.Renderer {
+   return &Note{
+       HTTPStatusCode: http.StatusOK,
+       ID: entry.ID,
+       Title: entry.Title,
+       CreatedOn: entry.CreatedOn,
    }
 }
 
@@ -150,13 +268,37 @@ func newNotesListResponse(index []*notes.IndexEntry) []render.Renderer {
 }
 
 func (n *Note) Render(w http.ResponseWriter, r *http.Request) error {
+    render.Status(r, n.HTTPStatusCode)
     return nil
 }
 
+type NoteRequest struct {
+    *Note
+
+    // chi does this in its examples. This allows us to
+    // have a canonical API object (Note) and omit fields
+    // in the request as necessary.
+    ProtectedID        string `json:"id"`
+    ProtectedCreatedOn time.Time `json:"created_on"`
+}
+
+func (n *NoteRequest) Bind(r *http.Request) error {
+    if n.Note == nil {
+        return errors.New("missing required Note fields")
+    }
+
+    n.ProtectedID = ""
+    // n.ProtectedCreatedOn = fmt.Sprintf("%s", time.Now().UTC())
+    n.ProtectedCreatedOn = time.Now().UTC()
+    return nil
+}
+
+
 type Note struct {
+    HTTPStatusCode int `json:"-"`
     ID          string `json:"id"`
     Title       string `json:"title"`
-    CreatedOn   string `json:"created_on"`
+    CreatedOn   time.Time `json:"created_on"`
 }
 
 type ErrResponse struct {
@@ -187,6 +329,15 @@ func ErrNotFoundError(err error) render.Renderer {
         Err:            err,
         HTTPStatusCode: 404,
         StatusText:     "Resource not found",
+        ErrorText:      err.Error(),
+    }
+}
+
+func ErrInvalidRequest(err error) render.Renderer {
+    return &ErrResponse{
+        Err:            err,
+        HTTPStatusCode: 400,
+        StatusText:     "Invalid request",
         ErrorText:      err.Error(),
     }
 }

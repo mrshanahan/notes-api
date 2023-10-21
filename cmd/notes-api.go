@@ -1,6 +1,7 @@
 package main
 
 import (
+    "context"
     "errors"
     "fmt"
     "log/slog"
@@ -37,13 +38,16 @@ func main() {
     r.Use(render.SetContentType(render.ContentTypeJSON))
 
     r.Route("/index", func(r chi.Router) {
+        r.Use(indexContext)
         r.Post("/validate", validateIndex)
     })
 
     r.Route("/notes", func(r chi.Router) {
+        r.Use(indexContext)
         r.Get("/", listNotes)
         r.Post("/", createNote)
         r.Route("/{noteID}", func(r chi.Router) {
+            r.Use(noteContext)
             r.Get("/", getNote)
             r.Put("/", updateNote)
             r.Delete("/", deleteNote)
@@ -56,27 +60,43 @@ func main() {
     http.ListenAndServe(fmt.Sprintf(":%d", port), r)
 }
 
+func indexContext(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        index, err := notes.LoadIndex()
+        if err != nil {
+            slog.Error("failed to load index",
+                "err", err)
+            render.Render(w, r, ErrInternalServerError(err))
+            return
+        }
+        ctx := context.WithValue(r.Context(), "index", index)
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+
+func noteContext(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        index := r.Context().Value("index").([]*notes.IndexEntry)
+        id := chi.URLParam(r, "noteID")
+        found := notes.LookupNote(id, index)
+        if found == nil {
+            render.Render(w, r, ErrNotFoundError(errors.New(fmt.Sprintf("no note with id: %s", id))))
+            return
+        }
+        ctx := context.WithValue(r.Context(), "note", found)
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+
 func listNotes(w http.ResponseWriter, r *http.Request) {
-    index, err := notes.LoadIndex()
-    if err != nil {
-        slog.Error("failed to load index",
-            "err", err)
-        render.Render(w, r, ErrInternalServerError(err))
-        return
-    }
-    if err = render.RenderList(w, r, newNotesListResponse(index)); err != nil {
+    index := r.Context().Value("index").([]*notes.IndexEntry)
+    if err := render.RenderList(w, r, newNotesListResponse(index)); err != nil {
         render.Render(w, r, ErrInternalServerError(err))
     }
 }
 
 func createNote(w http.ResponseWriter, r *http.Request) {
-    index, err := notes.LoadIndex()
-    if err != nil {
-        slog.Error("failed to load index",
-            "err", err)
-        render.Render(w, r, ErrInternalServerError(err))
-        return
-    }
+    index := r.Context().Value("index").([]*notes.IndexEntry)
 
     data := &NoteRequest{}
     if err := render.Bind(r, data); err != nil {
@@ -84,7 +104,7 @@ func createNote(w http.ResponseWriter, r *http.Request) {
     }
 
     entry, index := notes.NewNote(data.Note.Title, index)
-    if err = notes.SaveIndex(index); err != nil {
+    if err := notes.SaveIndex(index); err != nil {
         slog.Error("failed to save index",
             "err", err)
         render.Render(w, r, ErrInternalServerError(err))
@@ -94,16 +114,7 @@ func createNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func validateIndex(w http.ResponseWriter, r *http.Request) {
-    slog.Info("loading index")
-    index, err := notes.LoadIndex()
-    slog.Info("loaded index")
-    if err != nil {
-        slog.Error("failed to load index",
-            "err", err)
-        render.Render(w, r, ErrInternalServerError(err))
-        return
-    }
-
+    index := r.Context().Value("index").([]*notes.IndexEntry)
     for _, entry := range index {
         if entry.CreatedOn.IsZero() {
             path := entry.Path
@@ -131,22 +142,8 @@ func validateIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func getNote(w http.ResponseWriter, r *http.Request) {
-    index, err := notes.LoadIndex()
-    if err != nil {
-        slog.Error("failed to load index",
-            "err", err)
-        render.Render(w, r, ErrInternalServerError(err))
-        return
-    }
-
-    id := chi.URLParam(r, "noteID")
-    found := notes.LookupNote(id, index)
-    if found == nil {
-        render.Render(w, r, ErrNotFoundError(errors.New(fmt.Sprintf("no note with id: %s", id))))
-        return
-    }
-
-    if err = render.Render(w, r, newNoteResponse(found)); err != nil {
+    note := r.Context().Value("note").(*notes.IndexEntry)
+    if err := render.Render(w, r, newNoteResponse(note)); err != nil {
         render.Render(w, r, ErrInternalServerError(err))
     }
 }
@@ -155,21 +152,9 @@ func updateNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteNote(w http.ResponseWriter, r *http.Request) {
-    index, err := notes.LoadIndex()
-    if err != nil {
-        slog.Error("failed to load index",
-            "err", err)
-        render.Render(w, r, ErrInternalServerError(err))
-        return
-    }
-
+    index := r.Context().Value("index").([]*notes.IndexEntry)
     id := chi.URLParam(r, "noteID")
-    found := notes.LookupNote(id, index)
-    if found == nil {
-        render.Render(w, r, ErrNotFoundError(errors.New(fmt.Sprintf("no note with id: %s", id))))
-        return
-    }
-
+    var err error
     if index, err = notes.DeleteNote(id, index); err != nil {
         slog.Error("failed to remove note",
             "err", err,
@@ -190,23 +175,8 @@ func deleteNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func getNoteContent(w http.ResponseWriter, r *http.Request) {
-    index, err := notes.LoadIndex()
-    if err != nil {
-        slog.Error("failed to load index",
-            "err", err)
-        render.Render(w, r, ErrInternalServerError(err))
-        return
-    }
-
-
-    id := chi.URLParam(r, "noteID")
-    found := notes.LookupNote(id, index)
-    if found == nil {
-        render.Render(w, r, ErrNotFoundError(errors.New(fmt.Sprintf("no note with id: %s", id))))
-        return
-    }
-
-    content, err := notes.GetNoteContents(found)
+    note := r.Context().Value("note").(*notes.IndexEntry)
+    content, err := notes.GetNoteContents(note)
     if err != nil {
         render.Render(w, r, ErrInternalServerError(err))
     }

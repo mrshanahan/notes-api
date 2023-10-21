@@ -133,20 +133,14 @@ func validateIndex(w http.ResponseWriter, r *http.Request) {
 func getNote(w http.ResponseWriter, r *http.Request) {
     index, err := notes.LoadIndex()
     if err != nil {
-        slog.Error("failed to load index", err)
+        slog.Error("failed to load index",
+            "err", err)
         render.Render(w, r, ErrInternalServerError(err))
         return
     }
 
-    var found *notes.IndexEntry = nil
     id := chi.URLParam(r, "noteID")
-    for _, note := range index {
-        if note.ID == id {
-            found = note
-            break
-        }
-    }
-
+    found := notes.LookupNote(id, index)
     if found == nil {
         render.Render(w, r, ErrNotFoundError(errors.New(fmt.Sprintf("no note with id: %s", id))))
         return
@@ -163,7 +157,8 @@ func updateNote(w http.ResponseWriter, r *http.Request) {
 func deleteNote(w http.ResponseWriter, r *http.Request) {
     index, err := notes.LoadIndex()
     if err != nil {
-        slog.Error("failed to load index", err)
+        slog.Error("failed to load index",
+            "err", err)
         render.Render(w, r, ErrInternalServerError(err))
         return
     }
@@ -197,25 +192,19 @@ func deleteNote(w http.ResponseWriter, r *http.Request) {
 func getNoteContent(w http.ResponseWriter, r *http.Request) {
     index, err := notes.LoadIndex()
     if err != nil {
-        slog.Error("failed to load index", err)
+        slog.Error("failed to load index",
+            "err", err)
         render.Render(w, r, ErrInternalServerError(err))
         return
     }
 
-    var found *notes.IndexEntry = nil
-    id := chi.URLParam(r, "noteID")
-    for _, note := range index {
-        if note.ID == id {
-            found = note
-            break
-        }
-    }
 
+    id := chi.URLParam(r, "noteID")
+    found := notes.LookupNote(id, index)
     if found == nil {
         render.Render(w, r, ErrNotFoundError(errors.New(fmt.Sprintf("no note with id: %s", id))))
         return
     }
-
 
     content, err := notes.GetNoteContents(found)
     if err != nil {
@@ -239,6 +228,8 @@ func getNoteContent(w http.ResponseWriter, r *http.Request) {
 
 func updateNoteContent(w http.ResponseWriter, r *http.Request) {
 }
+
+// API types
 
 func newNoteResponseWithStatus(entry *notes.IndexEntry, status int) render.Renderer {
    return &Note{

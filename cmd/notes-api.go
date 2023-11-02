@@ -4,6 +4,7 @@ import (
     "context"
     "errors"
     "fmt"
+    "io"
     "log/slog"
     "net/http"
     "os"
@@ -76,7 +77,7 @@ func indexContext(next http.Handler) http.Handler {
 
 func noteContext(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        index := r.Context().Value("index").([]*notes.IndexEntry)
+        index := getIndexFromContext(r)
         id := chi.URLParam(r, "noteID")
         found := notes.LookupNote(id, index)
         if found == nil {
@@ -88,15 +89,23 @@ func noteContext(next http.Handler) http.Handler {
     })
 }
 
+func getIndexFromContext(r *http.Request) []*notes.IndexEntry {
+    return r.Context().Value("index").([]*notes.IndexEntry)
+}
+
+func getNoteFromContext(r *http.Request) *notes.IndexEntry {
+    return r.Context().Value("note").(*notes.IndexEntry)
+}
+
 func listNotes(w http.ResponseWriter, r *http.Request) {
-    index := r.Context().Value("index").([]*notes.IndexEntry)
+    index := getIndexFromContext(r)
     if err := render.RenderList(w, r, newNotesListResponse(index)); err != nil {
         render.Render(w, r, ErrInternalServerError(err))
     }
 }
 
 func createNote(w http.ResponseWriter, r *http.Request) {
-    index := r.Context().Value("index").([]*notes.IndexEntry)
+    index := getIndexFromContext(r)
 
     data := &NoteRequest{}
     if err := render.Bind(r, data); err != nil {
@@ -114,7 +123,7 @@ func createNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func validateIndex(w http.ResponseWriter, r *http.Request) {
-    index := r.Context().Value("index").([]*notes.IndexEntry)
+    index := getIndexFromContext(r)
     for _, entry := range index {
         if entry.CreatedOn.IsZero() {
             path := entry.Path
@@ -142,17 +151,41 @@ func validateIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func getNote(w http.ResponseWriter, r *http.Request) {
-    note := r.Context().Value("note").(*notes.IndexEntry)
+    note := getNoteFromContext(r)
     if err := render.Render(w, r, newNoteResponse(note)); err != nil {
         render.Render(w, r, ErrInternalServerError(err))
     }
 }
 
 func updateNote(w http.ResponseWriter, r *http.Request) {
+    index := getIndexFromContext(r)
+    existingNote := getNoteFromContext(r)
+
+    newNote := &NoteRequest{}
+    if err := render.Bind(r, newNote); err != nil {
+        render.Render(w, r, ErrInvalidRequest(err))
+        return
+    }
+
+    if (existingNote.Title != newNote.Title) {
+        existingNote.Title = newNote.Title
+        notes.SaveIndex(index)
+    }
+
+    if err := notes.SaveIndex(index); err != nil {
+        // In case of error, re-deleting isn't an issue - we ignore not-found errors from the FS.
+        slog.Error("failed to save index; note is still deleted but entry is present in index",
+            "err", err,
+            "noteID", existingNote.ID)
+        render.Render(w, r, ErrInternalServerError(err))
+        return
+    }
+
+    w.WriteHeader(http.StatusNoContent)
 }
 
 func deleteNote(w http.ResponseWriter, r *http.Request) {
-    index := r.Context().Value("index").([]*notes.IndexEntry)
+    index := getIndexFromContext(r)
     id := chi.URLParam(r, "noteID")
     var err error
     if index, err = notes.DeleteNote(id, index); err != nil {
@@ -169,13 +202,14 @@ func deleteNote(w http.ResponseWriter, r *http.Request) {
             "err", err,
             "noteID", id)
         render.Render(w, r, ErrInternalServerError(err))
+        return
     }
 
     w.WriteHeader(http.StatusNoContent)
 }
 
 func getNoteContent(w http.ResponseWriter, r *http.Request) {
-    note := r.Context().Value("note").(*notes.IndexEntry)
+    note := getNoteFromContext(r)
     content, err := notes.GetNoteContents(note)
     if err != nil {
         render.Render(w, r, ErrInternalServerError(err))
@@ -197,6 +231,44 @@ func getNoteContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func updateNoteContent(w http.ResponseWriter, r *http.Request) {
+    note := getNoteFromContext(r)
+    content, err := readRawBody(r)
+    if err != nil {
+        slog.Error("failed to read request body",
+            "err", err)
+        return
+    }
+
+    if err := notes.SetNoteContents(content, note); err != nil {
+        slog.Error("failed to save file contents",
+            "err", err,
+            "noteID", note.ID)
+        render.Render(w, r, ErrInternalServerError(err))
+        return
+    }
+
+    w.WriteHeader(http.StatusNoContent)
+}
+
+func readRawBody(r *http.Request) ([]byte, error) {
+    BUF_SIZE := 1024 * 8
+    buffer := make([]byte, BUF_SIZE)
+    result := []byte{}
+    readMore := true
+    var err error = nil
+    for readMore {
+        numRead, err := r.Body.Read(buffer)
+        if err != nil && !errors.Is(err, io.EOF) {
+            readMore = false
+        } else {
+            readMore = err == nil
+            result = append(result, buffer[:numRead]...)
+        }
+    }
+    if err != nil {
+        return nil, err
+    }
+    return result, nil
 }
 
 // API types

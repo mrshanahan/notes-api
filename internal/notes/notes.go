@@ -180,6 +180,11 @@ func GetNoteContents(entry *IndexEntry) ([]byte, error) {
     return content, nil
 }
 
+func SetNoteContents(content []byte, entry *IndexEntry) error {
+    err := os.WriteFile(entry.Path, content, 0666)
+    return err
+}
+
 
 // Private
 

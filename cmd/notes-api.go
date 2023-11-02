@@ -232,7 +232,16 @@ func getNoteContent(w http.ResponseWriter, r *http.Request) {
 
 func updateNoteContent(w http.ResponseWriter, r *http.Request) {
     note := getNoteFromContext(r)
-    content, err := readRawBody(r)
+
+    f, _, err := r.FormFile("content")
+    if err != nil {
+        slog.Error("failed to get file reader",
+            "err", err)
+        return
+    }
+
+    // TODO: Don't read entire file into memory at once
+    content, err := readToEnd(f)
     if err != nil {
         slog.Error("failed to read request body",
             "err", err)
@@ -250,14 +259,14 @@ func updateNoteContent(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusNoContent)
 }
 
-func readRawBody(r *http.Request) ([]byte, error) {
+func readToEnd(r io.Reader) ([]byte, error) {
     BUF_SIZE := 1024 * 8
     buffer := make([]byte, BUF_SIZE)
     result := []byte{}
     readMore := true
     var err error = nil
     for readMore {
-        numRead, err := r.Body.Read(buffer)
+        numRead, err := r.Read(buffer)
         if err != nil && !errors.Is(err, io.EOF) {
             readMore = false
         } else {

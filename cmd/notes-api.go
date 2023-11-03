@@ -39,21 +39,21 @@ func main() {
     r.Use(render.SetContentType(render.ContentTypeJSON))
 
     r.Route("/index", func(r chi.Router) {
-        r.Use(indexContext)
-        r.Post("/validate", validateIndex)
+        r.Use(IndexContext)
+        r.Post("/validate", ValidateIndex)
     })
 
     r.Route("/notes", func(r chi.Router) {
-        r.Use(indexContext)
-        r.Get("/", listNotes)
-        r.Post("/", createNote)
+        r.Use(IndexContext)
+        r.Get("/", ListNotes)
+        r.Post("/", CreateNote)
         r.Route("/{noteID}", func(r chi.Router) {
-            r.Use(noteContext)
-            r.Get("/", getNote)
-            r.Put("/", updateNote)
-            r.Delete("/", deleteNote)
-            r.Get("/content", getNoteContent)
-            r.Put("/content", updateNoteContent)
+            r.Use(NoteContext)
+            r.Get("/", GetNote)
+            r.Put("/", UpdateNote)
+            r.Delete("/", DeleteNote)
+            r.Get("/content", GetNoteContent)
+            r.Put("/content", UpdateNoteContent)
         })
     })
 
@@ -61,7 +61,7 @@ func main() {
     http.ListenAndServe(fmt.Sprintf(":%d", port), r)
 }
 
-func indexContext(next http.Handler) http.Handler {
+func IndexContext(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         index, err := notes.LoadIndex()
         if err != nil {
@@ -75,7 +75,7 @@ func indexContext(next http.Handler) http.Handler {
     })
 }
 
-func noteContext(next http.Handler) http.Handler {
+func NoteContext(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         index := getIndexFromContext(r)
         id := chi.URLParam(r, "noteID")
@@ -97,14 +97,14 @@ func getNoteFromContext(r *http.Request) *notes.IndexEntry {
     return r.Context().Value("note").(*notes.IndexEntry)
 }
 
-func listNotes(w http.ResponseWriter, r *http.Request) {
+func ListNotes(w http.ResponseWriter, r *http.Request) {
     index := getIndexFromContext(r)
     if err := render.RenderList(w, r, newNotesListResponse(index)); err != nil {
         render.Render(w, r, ErrInternalServerError(err))
     }
 }
 
-func createNote(w http.ResponseWriter, r *http.Request) {
+func CreateNote(w http.ResponseWriter, r *http.Request) {
     index := getIndexFromContext(r)
 
     data := &NoteRequest{}
@@ -122,7 +122,7 @@ func createNote(w http.ResponseWriter, r *http.Request) {
     }
 }
 
-func validateIndex(w http.ResponseWriter, r *http.Request) {
+func ValidateIndex(w http.ResponseWriter, r *http.Request) {
     index := getIndexFromContext(r)
     for _, entry := range index {
         if entry.CreatedOn.IsZero() {
@@ -150,14 +150,14 @@ func validateIndex(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusNoContent)
 }
 
-func getNote(w http.ResponseWriter, r *http.Request) {
+func GetNote(w http.ResponseWriter, r *http.Request) {
     note := getNoteFromContext(r)
     if err := render.Render(w, r, newNoteResponse(note)); err != nil {
         render.Render(w, r, ErrInternalServerError(err))
     }
 }
 
-func updateNote(w http.ResponseWriter, r *http.Request) {
+func UpdateNote(w http.ResponseWriter, r *http.Request) {
     index := getIndexFromContext(r)
     existingNote := getNoteFromContext(r)
 
@@ -184,7 +184,7 @@ func updateNote(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusNoContent)
 }
 
-func deleteNote(w http.ResponseWriter, r *http.Request) {
+func DeleteNote(w http.ResponseWriter, r *http.Request) {
     index := getIndexFromContext(r)
     id := chi.URLParam(r, "noteID")
     var err error
@@ -208,7 +208,7 @@ func deleteNote(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusNoContent)
 }
 
-func getNoteContent(w http.ResponseWriter, r *http.Request) {
+func GetNoteContent(w http.ResponseWriter, r *http.Request) {
     note := getNoteFromContext(r)
     content, err := notes.GetNoteContents(note)
     if err != nil {
@@ -230,7 +230,7 @@ func getNoteContent(w http.ResponseWriter, r *http.Request) {
     w.Write(content)
 }
 
-func updateNoteContent(w http.ResponseWriter, r *http.Request) {
+func UpdateNoteContent(w http.ResponseWriter, r *http.Request) {
     note := getNoteFromContext(r)
 
     f, _, err := r.FormFile("content")

@@ -16,9 +16,17 @@ import (
     "github.com/go-chi/render"
 
     "mrshanahan.com/notes-api/internal/notes"
+    "mrshanahan.com/notes-api/pkg/notes-db"
 )
 
 func main() {
+    db, err := notesdb.Initialize("./notes.sqlite")
+    defer db.Close()
+    if err != nil {
+        fmt.Printf("failed to initialize: %s\n", err)
+        return
+    }
+
     portStr := os.Getenv("NOTES_API_PORT")
     defaultPort := 3333
     port, err := strconv.Atoi(portStr)
@@ -58,7 +66,12 @@ func main() {
     })
 
     slog.Info("listening for requests", "port", port);
-    http.ListenAndServe(fmt.Sprintf(":%d", port), r)
+    err = http.ListenAndServe(fmt.Sprintf(":%d", port), r)
+    if err != nil {
+        slog.Error("failed to initialize HTTP server",
+            "err", err)
+        os.Exit(1)
+    }
 }
 
 func IndexContext(next http.Handler) http.Handler {

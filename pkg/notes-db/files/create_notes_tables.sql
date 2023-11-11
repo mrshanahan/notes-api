@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS
     , content_type_id INT DEFAULT 1
     );
 
+-- TODO: Figure out FK constraints targeting this table
 CREATE TABLE IF NOT EXISTS
     content_type
     ( id INTEGER PRIMARY KEY
@@ -17,6 +18,6 @@ INSERT OR REPLACE INTO content_type (id, name) VALUES (1, 'sql');
 
 CREATE TABLE IF NOT EXISTS
     notes_content
-    ( note_id INTEGER REFERENCES notes (id)
+    ( note_id INTEGER UNIQUE REFERENCES notes(id) ON DELETE CASCADE
     , content BLOB
-    )
+    );

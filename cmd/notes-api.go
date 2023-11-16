@@ -9,6 +9,7 @@ import (
     "log/slog"
     "net/http"
     "os"
+    "path"
     "strconv"
     "time"
 
@@ -19,12 +20,49 @@ import (
     "mrshanahan.com/notes-api/pkg/notes-db"
 )
 
+var DB *sql.DB
+
 func main() {
-    db, err := notesdb.Initialize("./notes.sqlite")
-    defer db.Close()
+    exitCode := Run()
+    os.Exit(exitCode)
+}
+
+func Run() int {
+    dbPath := os.Getenv("NOTES_API_DB")
+    if dbPath == "" {
+        home := os.Getenv("HOME")
+        notesConfigDirectory := path.Join(home, ".notes")
+        if err := os.MkdirAll(notesConfigDirectory, 0777); err != nil {
+            slog.Error("failed to create notes directory",
+                "path", notesConfigDirectory,
+                "err", err)
+            return 1
+        }
+        dbPath = path.Join(notesConfigDirectory, "notes.sqlite")
+        slog.Info("no path provided for DB; using default",
+            "path", dbPath)
+    } else {
+        slog.Info("given DB path", "path", dbPath)
+        dbPathDir := path.Dir(dbPath)
+        if err := os.MkdirAll(dbPathDir, 0777); err != nil {
+            slog.Error("failed to create custom notes DB path parent",
+                "path", dbPathDir,
+                "err", err)
+            return 1
+        }
+    }
+
+    if _, err := os.Open(dbPath); err != nil && errors.Is(err, os.ErrNotExist) {
+        slog.Info("DB does not exist; it will be created during initialization",
+            "path", dbPath)
+    }
+
+    db, err := notesdb.Initialize(dbPath)
+    DB = db
+    defer DB.Close()
     if err != nil {
         fmt.Printf("failed to initialize: %s\n", err)
-        return
+        return 1
     }
 
     portStr := os.Getenv("NOTES_API_PORT")
@@ -45,7 +83,6 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
     r.Use(render.SetContentType(render.ContentTypeJSON))
-    r.Use(DBContext)
 
     r.Route("/notes", func(r chi.Router) {
         r.Get("/", ListNotes)
@@ -65,34 +102,20 @@ func main() {
     if err != nil {
         slog.Error("failed to initialize HTTP server",
             "err", err)
-        os.Exit(1)
+        return 1
     }
-}
-
-func DBContext(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        db, err := notesdb.Initialize("/tmp/notes.sqlite")
-        if err != nil {
-            slog.Error("failed to initialize DB connection",
-                "err", err)
-            render.Render(w, r, ErrInternalServerError(err))
-            return
-        }
-        ctx := context.WithValue(r.Context(), "db", db)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
+    return 0
 }
 
 func NoteContext(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        db := getDBFromContext(r)
         idStr := chi.URLParam(r, "noteID")
         id, err := strconv.ParseInt(idStr, 10, 64)
         if err != nil {
             render.Render(w, r, ErrInvalidRequest(err))
             return
         }
-        found, err := notesdb.GetNote(db, id)
+        found, err := notesdb.GetNote(DB, id)
         if err != nil {
             slog.Error("failed to execute query to retrieve note",
                 "id", id,
@@ -109,17 +132,12 @@ func NoteContext(next http.Handler) http.Handler {
     })
 }
 
-func getDBFromContext(r *http.Request) *sql.DB {
-    return r.Context().Value("db").(*sql.DB)
-}
-
 func getNoteFromContext(r *http.Request) *notesdb.IndexEntry {
     return r.Context().Value("note").(*notesdb.IndexEntry)
 }
 
 func ListNotes(w http.ResponseWriter, r *http.Request) {
-    db := getDBFromContext(r)
-    notes, err := notesdb.GetNotes(db)
+    notes, err := notesdb.GetNotes(DB)
     if err != nil {
         slog.Error("failed to execute query to retrieve notes",
             "err", err)
@@ -132,14 +150,12 @@ func ListNotes(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateNote(w http.ResponseWriter, r *http.Request) {
-    db := getDBFromContext(r)
-
     data := &NoteRequest{}
     if err := render.Bind(r, data); err != nil {
         render.Render(w, r, ErrInvalidRequest(err))
     }
 
-    entry, err := notesdb.NewNote(db, data.Note.Title)
+    entry, err := notesdb.NewNote(DB, data.Note.Title)
     if err != nil {
         slog.Error("failed to create note",
             "title", data.Note.Title,
@@ -158,7 +174,6 @@ func GetNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdateNote(w http.ResponseWriter, r *http.Request) {
-    db := getDBFromContext(r)
     existingNote := getNoteFromContext(r)
 
     newNote := &NoteRequest{}
@@ -168,7 +183,7 @@ func UpdateNote(w http.ResponseWriter, r *http.Request) {
     }
 
     if (existingNote.Title != newNote.Title) {
-        err := notesdb.UpdateNote(db, existingNote.ID, newNote.Title)
+        err := notesdb.UpdateNote(DB, existingNote.ID, newNote.Title)
         if err != nil {
             slog.Error("failed to update note",
                 "oldTitle", existingNote.Title,
@@ -183,14 +198,13 @@ func UpdateNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func DeleteNote(w http.ResponseWriter, r *http.Request) {
-    db := getDBFromContext(r)
     idStr := chi.URLParam(r, "noteID")
     id, err := strconv.ParseInt(idStr, 10, 64)
     if err != nil {
         render.Render(w, r, ErrInvalidRequest(err))
         return
     }
-    if err = notesdb.DeleteNote(db, id); err != nil {
+    if err = notesdb.DeleteNote(DB, id); err != nil {
         slog.Error("failed to remove note",
             "err", err,
             "noteID", id)
@@ -202,12 +216,11 @@ func DeleteNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetNoteContent(w http.ResponseWriter, r *http.Request) {
-    db := getDBFromContext(r)
     note := getNoteFromContext(r)
     var content []byte
     var err error
     if note.ContentType == notesdb.CONTENT_SQL {
-        content, err = notesdb.GetNoteContents(db, note.ID)
+        content, err = notesdb.GetNoteContents(DB, note.ID)
         if err != nil {
             render.Render(w, r, ErrInternalServerError(err))
             return
@@ -233,7 +246,6 @@ func GetNoteContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdateNoteContent(w http.ResponseWriter, r *http.Request) {
-    db := getDBFromContext(r)
     note := getNoteFromContext(r)
 
     content := []byte(r.FormValue("content"))
@@ -254,7 +266,7 @@ func UpdateNoteContent(w http.ResponseWriter, r *http.Request) {
     }
 
     if note.ContentType == notesdb.CONTENT_SQL {
-        if err := notesdb.SetNoteContents(db, note.ID, content); err != nil {
+        if err := notesdb.SetNoteContents(DB, note.ID, content); err != nil {
             slog.Error("failed to save file contents",
                 "err", err,
                 "noteID", note.ID)

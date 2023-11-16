@@ -295,6 +295,7 @@ func newNoteResponseWithStatus(entry *notesdb.IndexEntry, status int) render.Ren
        ID: entry.ID,
        Title: entry.Title,
        CreatedOn: entry.CreatedOn,
+       UpdatedOn: entry.UpdatedOn,
    }
 }
 
@@ -305,6 +306,7 @@ func newNoteResponse(entry *notesdb.IndexEntry) render.Renderer {
        ID: entry.ID,
        Title: entry.Title,
        CreatedOn: entry.CreatedOn,
+       UpdatedOn: entry.UpdatedOn,
    }
 }
 
@@ -329,6 +331,7 @@ type NoteRequest struct {
     // in the request as necessary.
     ProtectedID        int64 `json:"id"`
     ProtectedCreatedOn time.Time `json:"created_on"`
+    ProtectedUpdatedOn time.Time `json:"updated_on"`
 }
 
 func (n *NoteRequest) Bind(r *http.Request) error {
@@ -339,6 +342,7 @@ func (n *NoteRequest) Bind(r *http.Request) error {
     n.ProtectedID = 0
     // n.ProtectedCreatedOn = fmt.Sprintf("%s", time.Now().UTC())
     n.ProtectedCreatedOn = time.Now().UTC()
+    n.ProtectedUpdatedOn = time.Now().UTC()
     return nil
 }
 
@@ -348,6 +352,7 @@ type Note struct {
     ID          int64 `json:"id"`
     Title       string `json:"title"`
     CreatedOn   time.Time `json:"created_on"`
+    UpdatedOn   time.Time `json:"updated_on"`
 }
 
 type ErrResponse struct {

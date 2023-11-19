@@ -255,6 +255,9 @@ func UpdateNoteContent(w http.ResponseWriter, r *http.Request) {
         if err != nil && errors.Is(err, http.ErrMissingFile) {
             render.Render(w, r, ErrInvalidRequest(errors.New("either form value or form file required for 'content' form field")))
             return
+        } else if err != nil {
+            render.Render(w, r, ErrInvalidRequest(fmt.Errorf("unexpected error when reading form file: %w", err)))
+            return
         }
         // TODO: Don't read entire file into memory at once
         content, err = utils.ReadToEnd(f)

@@ -10,8 +10,8 @@ import (
     "net/url"
     "strings"
 
-    "mrshanahan.com/notes-api/pkg/notes"
-    "mrshanahan.com/notes-api/internal/utils"
+    "github.com/mrshanahan/notes-api/pkg/notes"
+    "github.com/mrshanahan/notes-api/internal/utils"
 )
 
 type Client struct {

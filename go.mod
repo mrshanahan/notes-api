@@ -1,4 +1,4 @@
-module mrshanahan.com/notes-api
+module github.com/mrshanahan/notes-api
 
 go 1.19
 

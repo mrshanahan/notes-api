@@ -8,7 +8,7 @@ import (
 
     _ "github.com/mattn/go-sqlite3"
 
-    "mrshanahan.com/notes-api/pkg/notes"
+    "github.com/mrshanahan/notes-api/pkg/notes"
 )
 
 var (

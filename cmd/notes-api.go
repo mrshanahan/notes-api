@@ -16,9 +16,9 @@ import (
     "github.com/go-chi/chi/v5/middleware"
     "github.com/go-chi/render"
 
-    "mrshanahan.com/notes-api/pkg/notes-db"
-    "mrshanahan.com/notes-api/pkg/notes"
-    "mrshanahan.com/notes-api/internal/utils"
+    "github.com/mrshanahan/notes-api/pkg/notes-db"
+    "github.com/mrshanahan/notes-api/pkg/notes"
+    "github.com/mrshanahan/notes-api/internal/utils"
 )
 
 var DB *sql.DB

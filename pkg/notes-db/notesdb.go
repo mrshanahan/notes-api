@@ -7,6 +7,8 @@ import (
     "time"
 
     _ "github.com/mattn/go-sqlite3"
+
+    "mrshanahan.com/notes-api/pkg/notes"
 )
 
 var (
@@ -19,10 +21,7 @@ const (
 )
 
 type IndexEntry struct {
-    ID int64
-    Title string
-    CreatedOn time.Time
-    UpdatedOn time.Time
+    *notes.Note
     ContentType int
 }
 
@@ -30,6 +29,9 @@ func Initialize(path string) (*sql.DB, error) {
     db, err := sql.Open("sqlite3", path)
     if err != nil {
         return nil, err
+    }
+    if db == nil {
+        panic("WTF???")
     }
 
     tx, err := db.Begin()
@@ -178,7 +180,7 @@ func SetNoteContents(db *sql.DB, id int64, content []byte) error {
 // Private
 
 func scanNoteRow(row *sql.Row) (*IndexEntry, error) {
-    note := &IndexEntry{}
+    note := &IndexEntry{Note: &notes.Note{}}
     var createdOn, updatedOn string
     err := row.Scan(&note.ID, &note.Title, &createdOn, &updatedOn, &note.ContentType)
     if err != nil {
@@ -196,7 +198,7 @@ func scanNoteRow(row *sql.Row) (*IndexEntry, error) {
 }
 
 func scanNoteRows(rows *sql.Rows) (*IndexEntry, error) {
-    note := &IndexEntry{}
+    note := &IndexEntry{Note: &notes.Note{}}
     var createdOn, updatedOn string
     rows.Scan(&note.ID, &note.Title, &createdOn, &updatedOn, &note.ContentType)
     var err error

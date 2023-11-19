@@ -5,7 +5,6 @@ import (
     "database/sql"
     "errors"
     "fmt"
-    "io"
     "log/slog"
     "net/http"
     "os"
@@ -18,6 +17,8 @@ import (
     "github.com/go-chi/render"
 
     "mrshanahan.com/notes-api/pkg/notes-db"
+    "mrshanahan.com/notes-api/pkg/notes"
+    "mrshanahan.com/notes-api/internal/utils"
 )
 
 var DB *sql.DB
@@ -58,12 +59,12 @@ func Run() int {
     }
 
     db, err := notesdb.Initialize(dbPath)
-    DB = db
-    defer DB.Close()
     if err != nil {
         fmt.Printf("failed to initialize: %s\n", err)
         return 1
     }
+    DB = db
+    defer DB.Close()
 
     portStr := os.Getenv("NOTES_API_PORT")
     defaultPort := 3333
@@ -90,10 +91,10 @@ func Run() int {
         r.Route("/{noteID}", func(r chi.Router) {
             r.Use(NoteContext)
             r.Get("/", GetNote)
-            r.Put("/", UpdateNote)
+            r.Post("/", UpdateNote)
             r.Delete("/", DeleteNote)
             r.Get("/content", GetNoteContent)
-            r.Put("/content", UpdateNoteContent)
+            r.Post("/content", UpdateNoteContent)
         })
     })
 
@@ -256,7 +257,7 @@ func UpdateNoteContent(w http.ResponseWriter, r *http.Request) {
             return
         }
         // TODO: Don't read entire file into memory at once
-        content, err = readToEnd(f)
+        content, err = utils.ReadToEnd(f)
         if err != nil {
             slog.Error("failed to read request body",
                 "err", err)
@@ -278,47 +279,31 @@ func UpdateNoteContent(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusNoContent)
 }
 
-func readToEnd(r io.Reader) ([]byte, error) {
-    BUF_SIZE := 1024 * 8
-    buffer := make([]byte, BUF_SIZE)
-    result := []byte{}
-    readMore := true
-    var err error = nil
-    for readMore {
-        numRead, err := r.Read(buffer)
-        if err != nil && !errors.Is(err, io.EOF) {
-            readMore = false
-        } else {
-            readMore = err == nil
-            result = append(result, buffer[:numRead]...)
-        }
-    }
-    if err != nil {
-        return nil, err
-    }
-    return result, nil
-}
 
 // API types
 
 func newNoteResponseWithStatus(entry *notesdb.IndexEntry, status int) render.Renderer {
-   return &Note{
+   return &NoteResponse{
        HTTPStatusCode: status,
-       ID: entry.ID,
-       Title: entry.Title,
-       CreatedOn: entry.CreatedOn,
-       UpdatedOn: entry.UpdatedOn,
+       Note: &notes.Note{
+           entry.ID,
+           entry.Title,
+           entry.CreatedOn,
+           entry.UpdatedOn,
+       },
    }
 }
 
 
 func newNoteResponse(entry *notesdb.IndexEntry) render.Renderer {
-   return &Note{
+   return &NoteResponse{
        HTTPStatusCode: http.StatusOK,
-       ID: entry.ID,
-       Title: entry.Title,
-       CreatedOn: entry.CreatedOn,
-       UpdatedOn: entry.UpdatedOn,
+       Note: &notes.Note{
+           entry.ID,
+           entry.Title,
+           entry.CreatedOn,
+           entry.UpdatedOn,
+       },
    }
 }
 
@@ -330,13 +315,13 @@ func newNotesListResponse(index []*notesdb.IndexEntry) []render.Renderer {
     return response
 }
 
-func (n *Note) Render(w http.ResponseWriter, r *http.Request) error {
+func (n *NoteResponse) Render(w http.ResponseWriter, r *http.Request) error {
     render.Status(r, n.HTTPStatusCode)
     return nil
 }
 
 type NoteRequest struct {
-    *Note
+    *NoteResponse
 
     // chi does this in its examples. This allows us to
     // have a canonical API object (Note) and omit fields
@@ -359,12 +344,9 @@ func (n *NoteRequest) Bind(r *http.Request) error {
 }
 
 
-type Note struct {
+type NoteResponse struct {
+    *notes.Note
     HTTPStatusCode int `json:"-"`
-    ID          int64 `json:"id"`
-    Title       string `json:"title"`
-    CreatedOn   time.Time `json:"created_on"`
-    UpdatedOn   time.Time `json:"updated_on"`
 }
 
 type ErrResponse struct {

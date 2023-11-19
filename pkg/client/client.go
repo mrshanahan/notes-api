@@ -1,9 +1,11 @@
 package client
 
 import (
+    "bytes"
     "encoding/json"
     "fmt"
     "io"
+    "mime/multipart"
     "net/http"
     "net/url"
     "strings"
@@ -118,10 +120,37 @@ func (c *Client) DeleteNote(id int64) error {
     return err
 }
 
-func GetNoteContent() {
+func (c *Client) GetNoteContent(id int64) ([]byte, error) {
+    urlPath := fmt.Sprintf("/notes/%d/content", id)
+
+    resp, err := c.invoke("GET", urlPath)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    respBytes, err := validateResponse(resp)
+    if err != nil {
+        return nil, err
+    }
+    return respBytes, nil
 }
 
-func UpdateNoteContent() {
+func (c *Client) UpdateNoteContent(id int64, content []byte) error {
+    body, contentType, err := newMultipartContent(content)
+    if err != nil {
+        return err
+    }
+
+    urlPath := fmt.Sprintf("/notes/%d/content", id)
+    resp, err := c.invokeWithPayload("POST", urlPath, contentType, body)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+
+    _, err = validateResponse(resp)
+    return err
 }
 
 // Private functions
@@ -178,3 +207,19 @@ func validateResponse(resp *http.Response) ([]byte, error) {
     return respBytes, nil
 }
 
+func newMultipartContent(content []byte) (io.Reader, string, error) {
+    // Form code taken/adapted from: https://stackoverflow.com/questions/20205796/post-data-using-the-content-type-multipart-form-data
+    var buffer bytes.Buffer
+    formWriter := multipart.NewWriter(&buffer)
+    fieldWriter, err := formWriter.CreateFormField("content")
+    if err != nil {
+        return nil, "", fmt.Errorf("error building multipart form for POST: %w", err)
+    }
+    _, err = io.Copy(fieldWriter, bytes.NewReader(content))
+    if err != nil {
+        return nil, "", fmt.Errorf("error building multipart form for POST: %w", err)
+    }
+    formWriter.Close() // Needed, or else no boundary in request
+
+    return &buffer, formWriter.FormDataContentType(), nil
+}

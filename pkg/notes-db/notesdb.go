@@ -34,6 +34,12 @@ func Initialize(path string) (*sql.DB, error) {
         panic("WTF???")
     }
 
+    // https://stackoverflow.com/questions/13641250/sqlite-delete-cascade-not-working
+    _, err = db.Exec("PRAGMA foreign_keys=on;")
+    if err != nil {
+        return nil, err
+    }
+
     tx, err := db.Begin()
     if err != nil {
         return nil, err

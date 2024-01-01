@@ -1,0 +1,15 @@
+[Unit]
+Description=Service that runs the notes-api executable locally
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=matt
+ExecStart=/home/matt/bin/notes-api
+Environment="NOTES_API_PORT=3333"
+
+[Install]
+WantedBy=multi-user.target

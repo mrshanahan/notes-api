@@ -1,27 +1,36 @@
 package utils
 
 import (
-    "errors"
-    "io"
+	"errors"
+	"io"
 )
 
 func ReadToEnd(r io.Reader) ([]byte, error) {
-    BUF_SIZE := 1024 * 8
-    buffer := make([]byte, BUF_SIZE)
-    result := []byte{}
-    readMore := true
-    var err error = nil
-    for readMore {
-        numRead, err := r.Read(buffer)
-        if err != nil && !errors.Is(err, io.EOF) {
-            readMore = false
-        } else {
-            readMore = err == nil
-            result = append(result, buffer[:numRead]...)
-        }
-    }
-    if err != nil {
-        return nil, err
-    }
-    return result, nil
+	BUF_SIZE := 1024 * 8
+	buffer := make([]byte, BUF_SIZE)
+	result := []byte{}
+	readMore := true
+	var err error = nil
+	for readMore {
+		numRead, err := r.Read(buffer)
+		if err != nil && !errors.Is(err, io.EOF) {
+			readMore = false
+		} else {
+			readMore = err == nil
+			result = append(result, buffer[:numRead]...)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func Any[T any](xs []T, pred func(T) bool) bool {
+	for _, x := range xs {
+		if pred(x) {
+			return true
+		}
+	}
+	return false
 }

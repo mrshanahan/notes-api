@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
 	"github.com/mrshanahan/notes-api/internal/auth"
+	"github.com/mrshanahan/notes-api/internal/cache"
 	"github.com/mrshanahan/notes-api/internal/middleware"
 	"github.com/mrshanahan/notes-api/internal/utils"
 	"github.com/mrshanahan/notes-api/pkg/notes"
@@ -27,10 +30,13 @@ import (
 )
 
 var (
-	DB              *sql.DB
-	TokenCookieName string = "access_token"
-	NoteLocalName   string = "note"
-	TokenLocalName         = "token"
+	DB                       *sql.DB
+	TokenCookieName          string = "access_token"
+	NoteLocalName            string = "note"
+	TokenLocalName           string = "token"
+	NotesConfigDirectory     string = path.Join(os.Getenv("HOME"), ".notes")
+	DefaultPort              int    = 3333
+	DefaultNotesDatabaseName string = "notes.sqlite"
 )
 
 func main() {
@@ -39,19 +45,21 @@ func main() {
 }
 
 func Run() int {
+	if len(os.Args) > 1 && utils.Any(os.Args[1:], func(x string) bool { return x == "-h" || x == "--help" || x == "-?" }) {
+		printHelp()
+		return 0
+	}
 	auth.InitializeAuth(context.Background())
 
 	dbPath := os.Getenv("NOTES_API_DB")
 	if dbPath == "" {
-		home := os.Getenv("HOME")
-		notesConfigDirectory := path.Join(home, ".notes")
-		if err := os.MkdirAll(notesConfigDirectory, 0777); err != nil {
+		if err := os.MkdirAll(NotesConfigDirectory, 0777); err != nil {
 			slog.Error("failed to create notes directory",
-				"path", notesConfigDirectory,
+				"path", NotesConfigDirectory,
 				"err", err)
 			return 1
 		}
-		dbPath = path.Join(notesConfigDirectory, "notes.sqlite")
+		dbPath = path.Join(NotesConfigDirectory, DefaultNotesDatabaseName)
 		slog.Info("no path provided for DB; using default",
 			"path", dbPath)
 	} else {
@@ -79,10 +87,9 @@ func Run() int {
 	defer DB.Close()
 
 	portStr := os.Getenv("NOTES_API_PORT")
-	defaultPort := 3333
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		port = defaultPort
+		port = DefaultPort
 		slog.Info("no valid port provided via NOTES_API_PORT, using default",
 			"portStr", portStr,
 			"defaultPort", port)
@@ -116,6 +123,21 @@ func Run() int {
 		return 1
 	}
 	return 0
+}
+
+func printHelp() {
+	fmt.Fprintf(os.Stderr, `
+notes-api [-h|--help|-?]
+
+OPTIONS:
+	-h|--help|-?	Display this help message and exit
+
+ENVIRONMENT VARIABLES:
+	NOTES_API_DB: 	(optional) Path to sqlite database holding note records (default: %s)
+	NOTES_API_PORT: (optional) Port on which API should be hosted (default: %d)
+`,
+		path.Join(NotesConfigDirectory, DefaultNotesDatabaseName),
+		DefaultPort)
 }
 
 func getNoteFromContext(c *fiber.Ctx) *notesdb.IndexEntry {
@@ -250,6 +272,92 @@ func UpdateNoteContent(c *fiber.Ctx) error {
 	}
 
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// Auth-related controllers
+
+var nonceCache *cache.TimedCache[string] = cache.NewTimedCache[string](5*time.Minute, 100)
+
+func createNonce() (string, error) {
+	randomBytes := make([]byte, 32)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return "", err
+	}
+	nonce := base64.StdEncoding.EncodeToString(randomBytes)
+	nonceCache.Insert(nonce)
+	return nonce, nil
+}
+
+func Login(c *fiber.Ctx) error {
+	cameFromParam := c.Query("came_from")
+	var cameFrom string
+	if cameFromParam != "" {
+		cameFromBytes, err := base64.URLEncoding.DecodeString(cameFromParam)
+		if err == nil {
+			cameFrom = string(cameFromBytes)
+		}
+	}
+
+	state := &auth.State{CameFrom: cameFrom}
+	nonce, err := createNonce()
+	if err != nil {
+		return err // TODO: Do something else here?
+	}
+
+	stateParam, err := state.Encode(nonce)
+	if err != nil {
+		return err // TODO: Do something else here?
+	}
+	url := auth.AuthConfig.KeycloakLoginConfig.AuthCodeURL(stateParam)
+
+	c.Status(fiber.StatusSeeOther)
+	c.Redirect(url)
+	return c.JSON(url)
+}
+
+func Logout(c *fiber.Ctx) error {
+	// TODO: Invalidate token(s)
+	c.ClearCookie(TokenCookieName)
+	return c.SendString("Logout successful")
+}
+
+func AuthCallback(c *fiber.Ctx) error {
+	stateParam := c.Query("state")
+	state, nonce, err := auth.ParseState(stateParam)
+	if err != nil {
+		c.Status(fiber.StatusUnauthorized)
+		return c.SendString(fmt.Sprintf("state is invalid: %s", err))
+	}
+	if _, ok := nonceCache.GetAndRemove(nonce); !ok {
+		c.Status(fiber.StatusUnauthorized)
+		return c.SendString("state is invalid: nonce not found in cache")
+	}
+
+	code := c.Query("code")
+	fmt.Println("Code: " + code)
+
+	kcConfig := auth.AuthConfig.KeycloakLoginConfig
+
+	token, err := kcConfig.Exchange(context.Background(), code)
+	if err != nil {
+		return c.SendString("Code-Token Exchange Failed")
+	}
+
+	_, err = auth.VerifyToken(c.Context(), token.AccessToken)
+	if err != nil {
+		return c.SendStatus(401)
+	}
+
+	c.Cookie(&fiber.Cookie{
+		Name:  "access_token",
+		Value: token.AccessToken,
+	})
+
+	if state.CameFrom != "" {
+		c.Redirect(state.CameFrom)
+	}
+	return c.SendString("Login successful")
 }
 
 // API types

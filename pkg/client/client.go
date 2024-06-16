@@ -167,8 +167,8 @@ func (c *Client) invoke(method string, path string) (*http.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error building API request: %w", err)
 	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token.AccessToken))
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.token.AccessToken))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error invoking API: %w", err)
@@ -187,6 +187,7 @@ func (c *Client) invokeWithPayload(method string, path string, contentType strin
 		return nil, fmt.Errorf("error building API request: %w", err)
 	}
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token.AccessToken))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

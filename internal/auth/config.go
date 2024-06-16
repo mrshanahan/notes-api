@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -17,11 +18,11 @@ type Config struct {
 
 var AuthConfig Config
 
-func InitializeAuth(context context.Context) {
-	AuthConfig = *BuildKeycloakConfig(context)
+func InitializeAuth(context context.Context, authApiRoot string) {
+	AuthConfig = *BuildKeycloakConfig(context, authApiRoot)
 }
 
-func BuildKeycloakConfig(context context.Context) *Config {
+func BuildKeycloakConfig(context context.Context, authApiRoot string) *Config {
 	baseProviderUrl := "http://localhost:8080/realms/myrealm"
 	provider, err := oidc.NewProvider(context, baseProviderUrl)
 	if err != nil {
@@ -30,9 +31,9 @@ func BuildKeycloakConfig(context context.Context) *Config {
 
 	config := &Config{
 		KeycloakLoginConfig: oauth2.Config{
-			ClientID:     "test-auth-app",
+			ClientID:     "test-notes-api",
 			ClientSecret: "not-the-real-secret",
-			RedirectURL:  "http://localhost:9090/keycloak_callback",
+			RedirectURL:  fmt.Sprintf("%s/callback", authApiRoot),
 			Endpoint:     provider.Endpoint(),
 			Scopes:       []string{"profile", "email", oidc.ScopeOpenID},
 		},

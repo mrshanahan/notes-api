@@ -49,7 +49,6 @@ func Run() int {
 		printHelp()
 		return 0
 	}
-	auth.InitializeAuth(context.Background())
 
 	dbPath := os.Getenv("NOTES_API_DB")
 	if dbPath == "" {
@@ -98,10 +97,12 @@ func Run() int {
 			"port", port)
 	}
 
+	auth.InitializeAuth(context.Background(), fmt.Sprintf("http://localhost:%d/auth", port))
+
 	app := fiber.New()
 	app.Use(requestid.New(), logger.New(), recover.New())
 	app.Route("/notes", func(notes fiber.Router) {
-		// notes.Use(middleware.ValidateAccessToken(TokenLocalName, TokenCookieName))
+		notes.Use(middleware.ValidateAccessToken(TokenLocalName, TokenCookieName))
 		notes.Get("/", ListNotes)
 		notes.Post("/", CreateNote)
 		notes.Route("/:noteID", func(note fiber.Router) {
@@ -112,6 +113,11 @@ func Run() int {
 			note.Get("/content", GetNoteContent)
 			note.Post("/content", UpdateNoteContent)
 		})
+	})
+	app.Route("/auth", func(auth fiber.Router) {
+		auth.Get("/login", Login)
+		auth.Get("/logout", Logout)
+		auth.Get("/callback", AuthCallback)
 	})
 
 	slog.Info("listening for requests", "port", port)

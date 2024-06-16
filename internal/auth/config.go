@@ -11,18 +11,17 @@ import (
 var AccessTokenCookieName string = "access_token"
 
 type Config struct {
-	KeycloakBaseUri         string
-	KeycloakLoginConfig     oauth2.Config
-	KeycloakIDTokenVerifier *oidc.IDTokenVerifier
+	KeycloakBaseUri     string
+	KeycloakLoginConfig oauth2.Config
 }
 
 var AuthConfig Config
 
 func InitializeAuth(context context.Context, authApiRoot string) {
-	AuthConfig = *BuildKeycloakConfig(context, authApiRoot)
+	AuthConfig = *BuildNotesApiConfig(context, authApiRoot)
 }
 
-func BuildKeycloakConfig(context context.Context, authApiRoot string) *Config {
+func BuildNotesApiConfig(context context.Context, authApiRoot string) *Config {
 	baseProviderUrl := "http://localhost:8080/realms/myrealm"
 	provider, err := oidc.NewProvider(context, baseProviderUrl)
 	if err != nil {
@@ -32,7 +31,7 @@ func BuildKeycloakConfig(context context.Context, authApiRoot string) *Config {
 	config := &Config{
 		KeycloakLoginConfig: oauth2.Config{
 			ClientID:     "test-notes-api",
-			ClientSecret: "not-the-real-secret",
+			ClientSecret: "not-a-real-secret",
 			RedirectURL:  fmt.Sprintf("%s/callback", authApiRoot),
 			Endpoint:     provider.Endpoint(),
 			Scopes:       []string{"profile", "email", oidc.ScopeOpenID},

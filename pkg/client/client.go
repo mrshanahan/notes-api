@@ -12,14 +12,16 @@ import (
 
 	"github.com/mrshanahan/notes-api/internal/utils"
 	"github.com/mrshanahan/notes-api/pkg/notes"
+	"golang.org/x/oauth2"
 )
 
 type Client struct {
-	URL string
+	URL   string
+	token *oauth2.Token
 }
 
-func NewClient(url string) *Client {
-	return &Client{url}
+func NewClient(url string, token *oauth2.Token) *Client {
+	return &Client{url, token}
 }
 
 func (c *Client) ListNotes() ([]*notes.Note, error) {
@@ -166,6 +168,7 @@ func (c *Client) invoke(method string, path string) (*http.Response, error) {
 		return nil, fmt.Errorf("error building API request: %w", err)
 	}
 
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.token.AccessToken))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error invoking API: %w", err)

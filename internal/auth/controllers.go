@@ -8,7 +8,7 @@ import (
 
 func LoginController(c *fiber.Ctx) error {
 	// TODO: Actually random state
-	url := AuthConfig.KeycloakLoginConfig.AuthCodeURL("randomstate")
+	url := AuthConfig.LoginConfig.AuthCodeURL("randomstate")
 
 	c.Status(fiber.StatusSeeOther)
 	c.Redirect(url)
@@ -29,7 +29,7 @@ func AuthCallbackController(c *fiber.Ctx) error {
 	code := c.Query("code")
 	fmt.Println("Code: " + code)
 
-	kcConfig := AuthConfig.KeycloakLoginConfig
+	kcConfig := AuthConfig.LoginConfig
 
 	tokenResponse, err := kcConfig.Exchange(c.Context(), code)
 	if err != nil {

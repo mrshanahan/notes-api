@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
 )
 
 func VerifyToken(ctx context.Context, tokenString string) (*jwt.Token, error) {
-	jwksUri, err := getJwksUri(AuthConfig.KeycloakBaseUri)
+	jwksUri, err := getJwksUri(AuthConfig.BaseUri)
 	if err != nil {
 		panic("ahhhh")
 	}
@@ -24,7 +25,7 @@ func VerifyToken(ctx context.Context, tokenString string) (*jwt.Token, error) {
 
 	token, err := jwt.ParseString(tokenString,
 		jwt.WithKeySet(jwks),
-		jwt.WithIssuer(AuthConfig.KeycloakBaseUri),
+		jwt.WithIssuer(AuthConfig.BaseUri),
 		//jwt.WithAudience("..."))
 	)
 	if err != nil {
@@ -36,10 +37,13 @@ func VerifyToken(ctx context.Context, tokenString string) (*jwt.Token, error) {
 }
 
 func getJwksUri(rootUri string) (string, error) {
-	configUri := rootUri + "/.well-known/openid-configuration"
+	configUri, err := url.JoinPath(rootUri, "/.well-known/openid-configuration")
+	if err != nil {
+		return "", err
+	}
 	resp, err := http.Get(configUri)
 	if err != nil {
-		panic("ahhhh")
+		return "", err
 	}
 	defer resp.Body.Close()
 

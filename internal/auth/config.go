@@ -11,33 +11,32 @@ import (
 var AccessTokenCookieName string = "access_token"
 
 type Config struct {
-	KeycloakBaseUri     string
-	KeycloakLoginConfig oauth2.Config
+	BaseUri     string
+	LoginConfig oauth2.Config
 }
 
 var AuthConfig Config
 
-func InitializeAuth(context context.Context, authApiRoot string) {
-	AuthConfig = *BuildNotesApiConfig(context, authApiRoot)
+func InitializeAuth(context context.Context, authApiRoot string, authProviderUrl string) {
+	AuthConfig = *BuildNotesApiConfig(context, authApiRoot, authProviderUrl)
 }
 
-func BuildNotesApiConfig(context context.Context, authApiRoot string) *Config {
-	baseProviderUrl := "http://localhost:8080/realms/myrealm"
-	provider, err := oidc.NewProvider(context, baseProviderUrl)
+// TODO: Don't panic
+func BuildNotesApiConfig(context context.Context, authApiRoot string, authProviderUrl string) *Config {
+	provider, err := oidc.NewProvider(context, authProviderUrl)
 	if err != nil {
 		panic("Could not load OIDC configuration: " + err.Error())
 	}
 
 	config := &Config{
-		KeycloakLoginConfig: oauth2.Config{
+		LoginConfig: oauth2.Config{
 			ClientID:     "test-notes-api",
 			ClientSecret: "not-a-real-secret",
 			RedirectURL:  fmt.Sprintf("%s/callback", authApiRoot),
 			Endpoint:     provider.Endpoint(),
 			Scopes:       []string{"profile", "email", oidc.ScopeOpenID},
 		},
-		KeycloakBaseUri: baseProviderUrl,
-		// KeycloakIDTokenVerifier: provider.Verifier(&oidc.Config{ClientID: AuthConfig.KeycloakLoginConfig.ClientID}),
+		BaseUri: authProviderUrl,
 	}
 	return config
 }

@@ -50,8 +50,9 @@ func Run() int {
 		return 0
 	}
 
-	dbPath := os.Getenv("NOTES_API_DB")
-	if dbPath == "" {
+	var dbPath string
+	dbPathDir := os.Getenv("NOTES_API_DB_DIR")
+	if dbPathDir == "" {
 		if err := os.MkdirAll(NotesConfigDirectory, 0777); err != nil {
 			slog.Error("failed to create notes directory",
 				"path", NotesConfigDirectory,
@@ -62,14 +63,14 @@ func Run() int {
 		slog.Info("no path provided for DB; using default",
 			"path", dbPath)
 	} else {
-		slog.Info("given DB path", "path", dbPath)
-		dbPathDir := path.Dir(dbPath)
+		slog.Info("given DB directory", "dir", dbPathDir)
 		if err := os.MkdirAll(dbPathDir, 0777); err != nil {
 			slog.Error("failed to create custom notes DB path parent",
 				"path", dbPathDir,
 				"err", err)
 			return 1
 		}
+		dbPath = path.Join(dbPathDir, DefaultNotesDatabaseName)
 	}
 
 	if _, err := os.Open(dbPath); err != nil && errors.Is(err, os.ErrNotExist) {
@@ -97,7 +98,14 @@ func Run() int {
 			"port", port)
 	}
 
-	auth.InitializeAuth(context.Background(), fmt.Sprintf("http://localhost:%d/auth", port))
+	authProviderUrl := os.Getenv("NOTES_API_AUTH_PROVIDER_URL")
+	if authProviderUrl == "" {
+		panic("Required value for NOTES_API_AUTH_PROVIDER_URL but none provided")
+	}
+	auth.InitializeAuth(
+		context.Background(),
+		fmt.Sprintf("http://localhost:%d/auth", port),
+		authProviderUrl)
 
 	app := fiber.New()
 	app.Use(requestid.New(), logger.New(), recover.New())
@@ -139,10 +147,11 @@ OPTIONS:
 	-h|--help|-?	Display this help message and exit
 
 ENVIRONMENT VARIABLES:
-	NOTES_API_DB: 	(optional) Path to sqlite database holding note records (default: %s)
-	NOTES_API_PORT: (optional) Port on which API should be hosted (default: %d)
+	NOTES_API_AUTH_PROVIDER_URL: (required) Base URL of the authorization server
+	NOTES_API_DB_DIR:            (optional) Path to directory where notes.sqlite is located (default: %s)
+	NOTES_API_PORT:              (optional) Port on which API should be hosted (default: %d)
 `,
-		path.Join(NotesConfigDirectory, DefaultNotesDatabaseName),
+		NotesConfigDirectory,
 		DefaultPort)
 }
 
@@ -315,7 +324,7 @@ func Login(c *fiber.Ctx) error {
 	if err != nil {
 		return err // TODO: Do something else here?
 	}
-	url := auth.AuthConfig.KeycloakLoginConfig.AuthCodeURL(stateParam)
+	url := auth.AuthConfig.LoginConfig.AuthCodeURL(stateParam)
 
 	c.Status(fiber.StatusSeeOther)
 	c.Redirect(url)
@@ -343,7 +352,7 @@ func AuthCallback(c *fiber.Ctx) error {
 	code := c.Query("code")
 	fmt.Println("Code: " + code)
 
-	kcConfig := auth.AuthConfig.KeycloakLoginConfig
+	kcConfig := auth.AuthConfig.LoginConfig
 
 	token, err := kcConfig.Exchange(context.Background(), code)
 	if err != nil {

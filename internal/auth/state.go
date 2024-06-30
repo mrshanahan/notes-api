@@ -13,7 +13,7 @@ type State struct {
 }
 
 func (state State) Encode(nonce string) (string, error) {
-	return encode(state, nonce, AuthConfig.KeycloakLoginConfig.ClientSecret)
+	return encode(state, nonce, AuthConfig.LoginConfig.ClientSecret)
 }
 
 func ParseState(param string) (*State, string, error) {
@@ -24,7 +24,7 @@ func ParseState(param string) (*State, string, error) {
 
 	encodedState, nonce, signature := parts[0], parts[1], parts[2]
 
-	rebuiltSignature := getSignature(encodedState, nonce, AuthConfig.KeycloakLoginConfig.ClientSecret)
+	rebuiltSignature := getSignature(encodedState, nonce, AuthConfig.LoginConfig.ClientSecret)
 	if signature != rebuiltSignature {
 		return nil, "", fmt.Errorf("invalid state parameter - signature is invalid")
 	}

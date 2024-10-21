@@ -30,11 +30,10 @@ func BuildNotesApiConfig(context context.Context, authApiRoot string, authProvid
 
 	config := &Config{
 		LoginConfig: oauth2.Config{
-			ClientID:     "test-notes-api",
-			ClientSecret: "not-a-real-secret",
-			RedirectURL:  fmt.Sprintf("%s/callback", authApiRoot),
-			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{"profile", "email", oidc.ScopeOpenID},
+			ClientID:    "notes-api",
+			RedirectURL: fmt.Sprintf("%s/callback", authApiRoot),
+			Endpoint:    provider.Endpoint(),
+			Scopes:      []string{"profile", "email", oidc.ScopeOpenID},
 		},
 		BaseUri: authProviderUrl,
 	}

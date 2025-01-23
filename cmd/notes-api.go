@@ -23,8 +23,8 @@ import (
 
 	"github.com/mrshanahan/notes-api/internal/auth"
 	"github.com/mrshanahan/notes-api/internal/cache"
-	"github.com/mrshanahan/notes-api/internal/middleware"
 	"github.com/mrshanahan/notes-api/internal/utils"
+	"github.com/mrshanahan/notes-api/pkg/middleware"
 	"github.com/mrshanahan/notes-api/pkg/notes"
 	notesdb "github.com/mrshanahan/notes-api/pkg/notes-db"
 )

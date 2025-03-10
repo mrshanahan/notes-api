@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
@@ -99,19 +100,37 @@ func Run() int {
 			"port", port)
 	}
 
-	authProviderUrl := os.Getenv("NOTES_API_AUTH_PROVIDER_URL")
-	if authProviderUrl == "" {
-		panic("Required value for NOTES_API_AUTH_PROVIDER_URL but none provided")
+	disableAuth := false
+	disableAuthOption := strings.TrimSpace(os.Getenv("NOTES_API_DISABLE_AUTH"))
+	if disableAuthOption != "" {
+		slog.Warn("disabling authentication framework - THIS SHOULD ONLY BE RUN FOR TESTING!")
+		disableAuth = true
 	}
-	auth.InitializeAuth(
-		context.Background(),
-		fmt.Sprintf("http://localhost:%d/auth", port),
-		authProviderUrl)
+
+	if !disableAuth {
+		authProviderUrl := os.Getenv("NOTES_API_AUTH_PROVIDER_URL")
+		if authProviderUrl == "" {
+			panic("Required value for NOTES_API_AUTH_PROVIDER_URL but none provided")
+		}
+		auth.InitializeAuth(
+			context.Background(),
+			fmt.Sprintf("http://localhost:%d/auth", port),
+			authProviderUrl)
+	} else {
+		slog.Warn("skipping initialization of authentication framework", "disableAuth", disableAuth)
+	}
 
 	app := fiber.New()
 	app.Use(requestid.New(), logger.New(), recover.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "http://localhost:4444",
+	}))
 	app.Route("/notes", func(notes fiber.Router) {
-		notes.Use(middleware.ValidateAccessToken(TokenLocalName, TokenCookieName))
+		if !disableAuth {
+			notes.Use(middleware.ValidateAccessToken(TokenLocalName, TokenCookieName))
+		} else {
+			slog.Warn("skipping registration of token validation middleware", "disableAuth", disableAuth)
+		}
 		notes.Get("/", ListNotes)
 		notes.Post("/", CreateNote)
 		notes.Route("/:noteID", func(note fiber.Router) {
@@ -123,11 +142,15 @@ func Run() int {
 			note.Post("/content", UpdateNoteContent)
 		})
 	})
-	app.Route("/auth", func(auth fiber.Router) {
-		auth.Get("/login", Login)
-		auth.Get("/logout", Logout)
-		auth.Get("/callback", AuthCallback)
-	})
+	if !disableAuth {
+		app.Route("/auth", func(auth fiber.Router) {
+			auth.Get("/login", Login)
+			auth.Get("/logout", Logout)
+			auth.Get("/callback", AuthCallback)
+		})
+	} else {
+		slog.Warn("skipping registration of authentication-related endpoints", "disableAuth", disableAuth)
+	}
 
 	slog.Info("listening for requests", "port", port)
 	err = app.Listen(fmt.Sprintf(":%d", port))

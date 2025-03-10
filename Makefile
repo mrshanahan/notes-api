@@ -12,6 +12,9 @@ compile:
 integration:
 	go run $(CMD_DIR)/notes-test.go
 
+build-image:
+	docker build -t notes-api/api .
+
 install:
 	mkdir -p $(INSTALL_DIR)
 	cp $(CMD_DIR)/notes-api $(INSTALL_DIR)/notes-api
@@ -20,4 +23,4 @@ install:
 	systemctl daemon-reload
 	systemctl restart notes-api
 
-.PHONY: compile integration install
+.PHONY: compile integration build-image install

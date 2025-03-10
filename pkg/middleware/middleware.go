@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/mrshanahan/notes-api/internal/auth"
+	"github.com/mrshanahan/notes-api/pkg/auth"
 	notesdb "github.com/mrshanahan/notes-api/pkg/notes-db"
 )
 

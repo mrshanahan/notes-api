@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -160,13 +161,24 @@ func getNoteFromContext(c *fiber.Ctx) *notesdb.IndexEntry {
 }
 
 func ListNotes(c *fiber.Ctx) error {
-	notes, err := notesdb.GetNotes(DB)
-	if err != nil {
-		slog.Error("failed to execute query to retrieve notes",
-			"err", err)
-		return c.SendStatus(fiber.StatusInternalServerError)
+	includePreview := strings.ToLower(c.Query("includePreview", "false"))
+	if includePreview == "true" {
+		notes, err := notesdb.GetNotesWithPreview(DB, 200)
+		if err != nil {
+			slog.Error("failed to execute query to retrieve notes",
+				"err", err)
+			return c.SendStatus(fiber.StatusInternalServerError)
+		}
+		return c.JSON(notes)
+	} else {
+		notes, err := notesdb.GetNotes(DB)
+		if err != nil {
+			slog.Error("failed to execute query to retrieve notes",
+				"err", err)
+			return c.SendStatus(fiber.StatusInternalServerError)
+		}
+		return c.JSON(notes)
 	}
-	return c.JSON(notes)
 }
 
 func CreateNote(c *fiber.Ctx) error {

@@ -23,12 +23,12 @@ const (
 
 type IndexEntry struct {
 	*notes.Note
-	ContentType int
+	ContentType int `json:"-"`
 }
 
 type IndexEntryWithPreview struct {
 	*IndexEntry
-	ContentPreview string
+	ContentPreview string `json:"content_preview"`
 }
 
 func Initialize(path string) (*sql.DB, error) {

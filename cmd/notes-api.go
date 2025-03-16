@@ -112,10 +112,7 @@ func Run() int {
 		if authProviderUrl == "" {
 			panic("Required value for NOTES_API_AUTH_PROVIDER_URL but none provided")
 		}
-		auth.InitializeAuth(
-			context.Background(),
-			fmt.Sprintf("http://localhost:%d/auth", port),
-			authProviderUrl)
+		auth.InitializeAuth(context.Background(), authProviderUrl)
 	} else {
 		slog.Warn("skipping initialization of authentication framework", "disableAuth", disableAuth)
 	}

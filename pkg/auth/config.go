@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -17,12 +16,12 @@ type Config struct {
 
 var AuthConfig Config
 
-func InitializeAuth(context context.Context, authApiRoot string, authProviderUrl string) {
-	AuthConfig = *BuildAuthConfig(context, "notes-api", authApiRoot, authProviderUrl)
+func InitializeAuth(context context.Context, authProviderUrl string) {
+	AuthConfig = *BuildAuthConfig(context, "notes-api", authProviderUrl)
 }
 
 // TODO: Don't panic
-func BuildAuthConfig(context context.Context, clientID string, authApiRoot string, authProviderUrl string) *Config {
+func BuildAuthConfig(context context.Context, clientID string, authProviderUrl string) *Config {
 	provider, err := oidc.NewProvider(context, authProviderUrl)
 	if err != nil {
 		panic("Could not load OIDC configuration: " + err.Error())
@@ -30,10 +29,9 @@ func BuildAuthConfig(context context.Context, clientID string, authApiRoot strin
 
 	config := &Config{
 		LoginConfig: oauth2.Config{
-			ClientID:    clientID,
-			RedirectURL: fmt.Sprintf("%s/callback", authApiRoot),
-			Endpoint:    provider.Endpoint(),
-			Scopes:      []string{"profile", "email", oidc.ScopeOpenID},
+			ClientID: clientID,
+			Endpoint: provider.Endpoint(),
+			Scopes:   []string{"profile", "email", oidc.ScopeOpenID},
 		},
 		BaseUri: authProviderUrl,
 	}

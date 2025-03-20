@@ -18,12 +18,12 @@ type Config struct {
 
 var AuthConfig Config
 
-func InitializeAuth(context context.Context, authProviderUrl string) {
-	AuthConfig = *BuildAuthConfig(context, "notes-api", authProviderUrl)
+func InitializeAuth(context context.Context, authProviderUrl string, redirectUrl string) {
+	AuthConfig = *BuildAuthConfig(context, "notes-api", authProviderUrl, redirectUrl)
 }
 
 // TODO: Don't panic
-func BuildAuthConfig(context context.Context, clientID string, authProviderUrl string) *Config {
+func BuildAuthConfig(context context.Context, clientID string, authProviderUrl string, redirectUrl string) *Config {
 	provider, err := loadOIDCConfig(context, authProviderUrl)
 	if err != nil {
 		panic("Could not load OIDC configuration: " + err.Error())
@@ -31,9 +31,10 @@ func BuildAuthConfig(context context.Context, clientID string, authProviderUrl s
 
 	config := &Config{
 		LoginConfig: oauth2.Config{
-			ClientID: clientID,
-			Endpoint: provider.Endpoint(),
-			Scopes:   []string{"profile", "email", oidc.ScopeOpenID},
+			ClientID:    clientID,
+			Endpoint:    provider.Endpoint(),
+			RedirectURL: redirectUrl,
+			Scopes:      []string{"profile", "email", oidc.ScopeOpenID},
 		},
 		BaseUri: authProviderUrl,
 	}

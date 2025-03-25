@@ -19,6 +19,7 @@ RUN mkdir -p /app/data
 
 ENV NOTES_API_PORT 3333
 ENV NOTES_API_DB_DIR /app/data
-ENV NOTES_API_AUTH_PROVIDER_URL https://localhost:9443/realms/myrealm
+ENV NOTES_API_AUTH_PROVIDER_URL http://localhost:8080/realms/myrealm
+ENV NOTES_API_REDIRECT_URL http://localhost:3333/notes/auth/callback
 
 ENTRYPOINT [ "/app/notes-api" ]

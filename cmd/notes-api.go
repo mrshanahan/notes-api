@@ -121,10 +121,16 @@ func Run() int {
 		slog.Warn("skipping initialization of authentication framework", "disableAuth", disableAuth)
 	}
 
+	allowedOrigins := os.Getenv("NOTES_API_ALLOWED_ORIGINS")
+	if allowedOrigins == "" {
+		allowedOrigins = "*"
+	}
+	slog.Info("setting CORS allowed origins", "origins", allowedOrigins)
+
 	app := fiber.New()
 	app.Use(requestid.New(), logger.New(), recover.New())
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "http://localhost:4444",
+		AllowOrigins: allowedOrigins,
 	}))
 	app.Route("/notes", func(notes fiber.Router) {
 		if !disableAuth {

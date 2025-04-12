@@ -328,6 +328,12 @@ func UpdateNoteContent(c *fiber.Ctx) error {
 		}
 	}
 
+	if err := notesdb.TouchNote(DB, note.ID); err != nil {
+		slog.Error("failed to update note last modified",
+			"err", err)
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
 	return c.SendStatus(fiber.StatusNoContent)
 }
 

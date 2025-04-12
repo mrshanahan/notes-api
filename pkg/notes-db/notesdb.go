@@ -202,6 +202,16 @@ func UpdateNote(db *sql.DB, id int64, title string) error {
 	return err
 }
 
+func TouchNote(db *sql.DB, id int64) error {
+	stmt, err := db.Prepare("UPDATE notes SET updated_on = ? WHERE id = ?")
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.Exec(formatTime(time.Now().UTC()), id)
+	return err
+}
+
 func GetNoteContents(db *sql.DB, id int64) ([]byte, error) {
 	stmt, err := db.Prepare("SELECT content FROM notes_content WHERE note_id = ?")
 	if err != nil {

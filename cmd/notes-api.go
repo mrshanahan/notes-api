@@ -398,10 +398,7 @@ func AuthCallback(c *fiber.Ctx) error {
 	}
 
 	code := c.Query("code")
-	fmt.Println("Code: " + code)
-
 	kcConfig := auth.AuthConfig.LoginConfig
-
 	token, err := kcConfig.Exchange(context.Background(), code)
 	if err != nil {
 		return c.SendString("Code-Token Exchange Failed")

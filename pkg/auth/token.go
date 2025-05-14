@@ -6,18 +6,23 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
 )
 
-func VerifyToken(ctx context.Context, tokenString string) (*jwt.Token, error) {
-	jwksUri, err := getJwksUri(AuthConfig.BaseUri)
-	if err != nil {
-		panic("ahhhh")
-	}
+var (
+	lastJwksCheckin time.Time
+	cachedJwks      jwk.Set
+)
 
-	jwks, err := jwk.Fetch(ctx, jwksUri)
+const (
+	JWKS_LOAD_TIMEOUT time.Duration = 6 * time.Hour
+)
+
+func VerifyToken(ctx context.Context, tokenString string) (*jwt.Token, error) {
+	jwks, err := getJwks(ctx, AuthConfig.BaseUri)
 	if err != nil {
 		// TODO: panic here? Or just serve 401s? Not being to get JWKs is a Problem
 		return nil, err
@@ -36,29 +41,39 @@ func VerifyToken(ctx context.Context, tokenString string) (*jwt.Token, error) {
 	return &token, nil
 }
 
-func getJwksUri(rootUri string) (string, error) {
-	configUri, err := url.JoinPath(rootUri, "/.well-known/openid-configuration")
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.Get(configUri)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
+func getJwks(ctx context.Context, baseUri string) (jwk.Set, error) {
+	if cachedJwks == nil || time.Since(lastJwksCheckin) > JWKS_LOAD_TIMEOUT {
+		configUri, err := url.JoinPath(baseUri, "/.well-known/openid-configuration")
+		if err != nil {
+			return nil, err
+		}
+		resp, err := http.Get(configUri)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
 
-	config := &oidcConfig{}
-	bytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+		config := &oidcConfig{}
+		bytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		err = json.Unmarshal(bytes, config)
+		if err != nil {
+			return nil, err
+		}
+
+		cachedJwks, err = jwk.Fetch(ctx, config.JWKsURI)
+		if err != nil {
+			// TODO: panic here? Or just serve 401s? Not being to get JWKs is a Problem
+			return nil, err
+		}
+
+		lastJwksCheckin = time.Now()
 	}
 
-	err = json.Unmarshal(bytes, config)
-	if err != nil {
-		return "", err
-	}
-
-	return config.JWKsURI, nil
+	return cachedJwks, nil
 }
 
 type oidcConfig struct {

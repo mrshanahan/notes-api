@@ -31,6 +31,7 @@ func VerifyToken(ctx context.Context, tokenString string) (*jwt.Token, error) {
 	token, err := jwt.ParseString(tokenString,
 		jwt.WithKeySet(jwks),
 		jwt.WithIssuer(AuthConfig.BaseUri),
+		jwt.WithValidate(true), // have to explicitly enable validation due to the version of jwx we're using
 		//jwt.WithAudience("..."))
 	)
 	if err != nil {

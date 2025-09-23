@@ -71,6 +71,7 @@ func NewNote(db *sql.DB, title string) (*IndexEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer stmt.Close()
 
 	now := time.Now().UTC()
 	result, err := stmt.Exec(title, formatTime(now), formatTime(now))
@@ -111,13 +112,14 @@ func GetNotesWithPreview(db *sql.DB, previewLength int) ([]*IndexEntryWithPrevie
 	if err != nil {
 		return nil, err
 	}
+	defer stmt.Close()
 
 	rows, err := stmt.Query(previewLength, previewLength)
-	defer rows.Close()
-
 	if err != nil {
 		return nil, err
 	}
+
+	defer rows.Close()
 
 	notes := []*IndexEntryWithPreview{}
 	for rows.Next() {
@@ -140,13 +142,14 @@ func GetNotes(db *sql.DB) ([]*IndexEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer stmt.Close()
 
 	rows, err := stmt.Query()
-	defer rows.Close()
-
 	if err != nil {
 		return nil, err
 	}
+
+	defer rows.Close()
 
 	notes := []*IndexEntry{}
 	for rows.Next() {
@@ -169,6 +172,7 @@ func DeleteNote(db *sql.DB, id int64) error {
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 
 	_, err = stmt.Exec(id)
 	return err
@@ -179,6 +183,7 @@ func GetNote(db *sql.DB, id int64) (*IndexEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer stmt.Close()
 
 	row := stmt.QueryRow(id)
 
@@ -197,6 +202,7 @@ func UpdateNote(db *sql.DB, id int64, title string) error {
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 
 	_, err = stmt.Exec(title, formatTime(time.Now().UTC()), id)
 	return err
@@ -207,6 +213,7 @@ func TouchNote(db *sql.DB, id int64) error {
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 
 	_, err = stmt.Exec(formatTime(time.Now().UTC()), id)
 	return err
@@ -217,6 +224,7 @@ func GetNoteContents(db *sql.DB, id int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer stmt.Close()
 
 	row := stmt.QueryRow(id)
 
@@ -239,6 +247,7 @@ func SetNoteContents(db *sql.DB, id int64, content []byte) error {
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 
 	_, err = stmt.Exec(id, content)
 	return err

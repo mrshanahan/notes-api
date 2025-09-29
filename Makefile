@@ -13,7 +13,7 @@ integration:
 	go run $(CMD_DIR)/notes-test.go
 
 build-image:
-	docker build -t notes-api/api .
+	docker build --build-arg GIT_SHA=$$(git rev-parse HEAD) -t notes-api/api .
 
 install:
 	mkdir -p $(INSTALL_DIR)
